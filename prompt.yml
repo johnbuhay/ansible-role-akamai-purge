@@ -1,0 +1,16 @@
+---
+
+# unfortunately you will always be prompted even if you are running akamai_query, which does not require authentication
+- hosts: spawn_servers
+  gather_facts: False
+  connection: local
+  sudo: no
+  vars_prompt:
+    - name: "prompt_username"
+      prompt: "Enter username"
+      private: no
+    - name: "prompt_password"
+      prompt: "Enter password"
+      private: yes
+  roles:
+    - { role: akamai_purge, akamai_user: "{{prompt_username}}{{akamai_userDomain}}", akamai_password: "{{prompt_password}}" }

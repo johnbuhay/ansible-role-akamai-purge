@@ -1,0 +1,148 @@
+---
+# tasks file for akamai_purge
+
+
+- name: Loading team_profiles
+  include_vars: "../../../group_vars/global/team_profiles.yml"
+  tags:
+    - akamai_purge
+    - akamai_purge_arl
+    - akamai_purge_cpcode
+    - akamai_status
+    - silent
+
+- name: Install python dependency
+  pip: name={{item}} state=present
+  with_items:
+    - httplib2 
+  tags:
+    - akamai_purge
+    - akamai_purge_arl
+    - akamai_purge_cpcode
+    - akamai_status
+
+# Usage: ansible-playbook akamai.yml -i inventory/local --tags akamai_status
+- name: Checking Queue Length
+  uri: url={{ akamai_base_url }}/ccu/v2/queues/{{ queue_name | default('default') }}
+       user={{akamai_user}} password={{akamai_password}} force_basic_auth=yes
+       method=GET return_content=yes status_code=200
+  register: queue_length_response
+  tags:
+    - akamai_status
+    - akamai_purge
+    - akamai_purge_arl
+    - akamai_purge_cpcode
+
+
+# Usage: ansible-playbook akamai.yml -i inventory/local --tags akamai_purge_arl -vv --extra-vars arl=http://www.example.com/graphics/picture.gif,http://www.example.com/documents/brochure.pdf
+- name: Submit ARL Purge Request
+  uri: url={{ akamai_base_url }}/ccu/v2/queues/{{ queue_name | default('default') }} method=POST return_content=yes
+       body='{"action":"{{ akamai_action | default('remove')}}","objects":["{{arl | replace(',','", "') }}"],"type":"arl"}'
+       status_code=201 HEADER_Content-Type="application/json"
+       user={{akamai_user}} password={{akamai_password}} force_basic_auth=yes
+  register: purge_request_response
+  when: arl is defined
+  tags:
+    - akamai_purge_arl
+
+# Usage: ansible-playbook akamai.yml -i inventory/local --tags akamai_purge_cpcode -vv --extra-vars cpcode=number,number1,number2
+- name: Submit CPCODE Purge Request
+  uri: url={{ akamai_base_url }}/ccu/v2/queues/{{ queue_name | default('default') }} method=POST return_content=yes
+       body='{"action":"{{ akamai_action | default('remove')}}","objects":["{{ cpcode | replace(',','", "') }}"],"type":"cpcode"}'
+       status_code=201 HEADER_Content-Type="application/json"
+       user={{akamai_user}} password={{akamai_password}} force_basic_auth=yes
+  register: purge_request_response
+  when: cpcode is defined
+  tags:
+    - akamai_purge
+    - akamai_purge_cpcode
+
+# Usage: --extra-vars 'cpcode=number notify_team=us_releases'
+- name: Notify flowdock of purge request
+  flowdock: type=inbox
+            token={{team_profiles[item]['flowdock_key']}}
+            from_address={{akamai_user}}
+            source="purge request response"
+            msg='Purge request {{arl|default('')}}{{cpcode|default('')}}<br><br>{{purge_request_response.json | to_nice_yaml}}'
+            subject="Akamai Purge {{purge_request_response.json.detail}} will take approximately {{purge_request_response.json.estimatedSeconds}} seconds for {{arl|default('')}}{{cpcode|default('')}}"
+            validate_certs={{flowdock_validate_certs | default('yes')}}
+  with_items:
+    - devops_team
+    - "{{notify_team}}"
+  when: item !=''
+  ignore_errors: true
+  tags:
+    - akamai_purge
+    - akamai_purge_arl
+    - akamai_purge_cpcode
+    - silent
+
+- name: Wait for pingAfterSeconds
+  pause: seconds={{purge_request_response.json.pingAfterSeconds}}
+  tags:
+    - akamai_purge
+    - akamai_purge_arl
+    - akamai_purge_cpcode
+
+- name: Check Purge Status for 10x delay
+  uri: url={{ akamai_base_url}}{{ purge_request_response.json.progressUri }} method=GET return_content=yes
+       user={{akamai_user}} password={{akamai_password}}
+  register: purge_status_response
+  until: purge_status_response.json.purgeStatus == 'Done'
+  delay: "{{purge_status_response.json.pingAfterSeconds}}"
+  retries: 10
+  tags:
+    - akamai_purge
+    - akamai_purge_arl
+    - akamai_purge_cpcode
+
+- name: Notify flowdock on purge status
+  flowdock: type=inbox
+            token={{team_profiles[item]['flowdock_key']}}
+            from_address={{akamai_user}}
+            source="purge status response"
+            msg='Purge {{purge_status_response.json.purgeStatus}}<br><br>{{arl|default('')}}{{cpcode|default('')}}<br><br>{{purge_status_response.json | to_nice_yaml}}'
+            subject="Akamai Purge {{purge_status_response.json.purgeStatus}} for {{arl|default('')}}{{cpcode|default('')}}"
+            validate_certs={{flowdock_validate_certs | default('yes')}}
+  with_items:
+    - devops_team
+    - "{{notify_team}}"
+  when: item !=''
+  ignore_errors: true
+  tags:
+    - akamai_purge
+    - akamai_purge_arl
+    - akamai_purge_cpcode
+    - silent
+
+
+# provided by akamai tech
+# curl -i -H "Pragma: akamai-x-cache-on, akamai-x-cache-remote-on, akamai-x-check-cacheable, akamai-x-get-cache-key" http://www.example.com/graphics/picture.gif
+# Usage: ansible-playbook akamai.yml -i inventory/local --tags akamai_query -vv --extra-vars arl=http://www.example.com/graphics/picture.gif
+- name: Find out if ARL is cached on akamai
+  uri: url="{{arl}}" method=GET return_content=yes
+       HEADER_Pragma="akamai-x-cache-on, akamai-x-cache-remote-on, akamai-x-check-cacheable, akamai-x-get-cache-key"
+  register: akamai_query_result
+  tags:
+    - akamai_query
+
+- name: Output response variables
+  debug: var={{ item }}
+  with_items:
+    - akamai_query_result.date
+    - akamai_query_result.content_location
+    - akamai_query_result.invocation
+    - akamai_query_result.x_cache
+    - akamai_query_result.x_cache_key
+    - akamai_query_result.x_check_cacheable
+    - akamai_query_result.x_powered_by
+    - queue_length_response.json
+    - purge_request_response.json
+    - purge_status_response.json
+  when: "{{item}} is defined"
+  tags:
+    - akamai_purge
+    - akamai_purge_arl
+    - akamai_purge_cpcode
+    - akamai_query
+    - akamai_status
