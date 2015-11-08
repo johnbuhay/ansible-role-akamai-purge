@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: John Buhay
+  description: This role hits the akamai REST api for certain purge related tasks.
+  license: license (GPLv2, CC-BY, etc)
+  min_ansible_version: 1.2
+  dependencies: []
