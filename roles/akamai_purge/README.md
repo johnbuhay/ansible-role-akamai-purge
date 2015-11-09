@@ -81,11 +81,11 @@ example error response is:
 
 ```json
     {
-     'supportId': '17PY1234567890123456-123456789',
-     'title': 'queue is full',
-     'httpStatus': 507,
-     'detail': "User's queue is full",
-     'describedBy': 'https://api.ccu.akamai.com/ccu/v2/errors/queue-is-full'
+     "supportId": "17PY1234567890123456-123456789",
+     "title": "queue is full",
+     "httpStatus": 507,
+     "detail": "User's queue is full",
+     "describedBy": "https://api.ccu.akamai.com/ccu/v2/errors/queue-is-full"
     }
 ```
 
